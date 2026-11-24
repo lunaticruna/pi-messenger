@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MessengerState, Dirs } from "../../lib.ts";
 import { executeCrewAction } from "../../crew/index.ts";
-import { autonomousState, startAutonomous } from "../../crew/state.ts";
+import { autonomousState, startAutonomous, startPlanningRun, finishPlanningRun, consumePendingAutoWork, hasOverlayAutoWork } from "../../crew/state.ts";
 import { createTempCrewDirs } from "../helpers/temp-dirs.ts";
 import { createMockContext } from "../helpers/mock-context.ts";
 
@@ -81,6 +81,18 @@ describe("crew work.stop action", () => {
 
     expect(response.content[0].text).toContain("No autonomous work running for this project.");
     expect(response.details.mode).toBe("work.stop");
+  });
+
+  it("revokes overlay dispatch permission without claiming to terminate workers", async () => {
+    const { cwd } = createTempCrewDirs();
+    startPlanningRun(cwd, 1);
+    finishPlanningRun(cwd, "completed", 1, true);
+    expect(consumePendingAutoWork(cwd, "overlay")).not.toBeNull();
+    const response = await executeCrewAction("work.stop", {}, createTestState("AgentOne"),
+      createDirs(cwd), createMockContext(cwd), () => {}, () => {}, vi.fn());
+    expect(response.content[0].text).toContain("Automatic dispatch stopped");
+    expect(response.content[0].text).toContain("not terminated");
+    expect(hasOverlayAutoWork(cwd)).toBe(false);
   });
 
   it("stops active autonomous work and persists crew-state", async () => {

@@ -143,11 +143,11 @@ export class MessengerOverlay implements Component, Focusable {
     return isPlanningForCwd(this.cwd);
   }
 
-  private checkAutoSpawnOnPlanComplete(planning: boolean, tasks: Task[]): void {
-    if (planning || !this.hasPlan() || !this.state.registered) return;
+  private checkAutoSpawnOnPlanComplete(planning: boolean, tasks: Task[]): boolean {
+    if (planning || !this.hasPlan() || !this.state.registered) return false;
     // The planning-complete edge is not authorization. Claim the one-shot
     // permit shared with agent_end, including if this overlay opened late.
-    if (!consumePendingAutoWork(this.cwd, "overlay")) return;
+    if (!consumePendingAutoWork(this.cwd, "overlay")) return false;
 
     const config = loadCrewConfig(crewStore.getCrewDir(this.cwd));
     const readyTasks = crewStore.getReadyTasksFrom(tasks, { advisory: config.dependencies === "advisory" });
@@ -158,6 +158,8 @@ export class MessengerOverlay implements Component, Focusable {
       if (assigned > 0) {
         setNotification(this.crewViewState, this.tui, true, `Plan ready — ${assigned} worker${assigned > 1 ? "s" : ""} started`);
         this.tui.requestRender();
+      } else {
+        revokeAutoWork(this.cwd);
       }
     } else if (readyTasks.length > 0) {
       const rejected = readyTasks.filter(teamStore.taskNeedsRevision);
@@ -171,6 +173,7 @@ export class MessengerOverlay implements Component, Focusable {
 
     if (startableTasks.length === 0) revokeAutoWork(this.cwd);
     cleanupUnassignedAliveFiles(this.cwd);
+    return true;
   }
 
   private checkAutoRefillWorkers(tasks: Task[], hasPlan: boolean): void {
@@ -605,8 +608,13 @@ export class MessengerOverlay implements Component, Focusable {
     const selectedTask = tasks[this.crewViewState.selectedTaskIndex] ?? null;
     const hasPlan = this.hasPlan();
     const planning = this.isPlanningActiveForCurrentProject();
-    this.checkAutoSpawnOnPlanComplete(planning, tasks);
-    this.checkAutoRefillWorkers(tasks, hasPlan);
+    if (this.checkAutoSpawnOnPlanComplete(planning, tasks)) {
+      // The initial spawn may synchronously claim tasks. Do not refill from the
+      // stale task snapshot in the same render.
+      this.prevInProgressCount = crewStore.getTasks(this.cwd).filter(t => t.status === "in_progress").length;
+    } else {
+      this.checkAutoRefillWorkers(tasks, hasPlan);
+    }
 
     const lines: string[] = [];
     const titleContent = this.renderTitleContent();

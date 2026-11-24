@@ -172,7 +172,7 @@ function persistPlanningState(cwd: string): void {
   } catch {}
 }
 
-export function startPlanningRun(cwd: string, maxPasses: number): void {
+export function startPlanningRun(cwd: string, maxPasses: number): string {
   planningCancelled = false;
   const normalizedCwd = normalizeCwd(cwd);
   // A new plan cannot inherit permission from the previous execution.
@@ -189,6 +189,7 @@ export function startPlanningRun(cwd: string, maxPasses: number): void {
   planningState.updatedAt = new Date().toISOString();
   persistPlanningState(normalizedCwd);
   markPlanningOverlayPending(normalizedCwd);
+  return planningState.runId;
 }
 
 export function setPlanningPhase(cwd: string, phase: PlanningPhase, pass?: number): void {
