@@ -1,0 +1,27 @@
+name: Crew dispatch regression
+on:
+  pull_request:
+  push:
+    branches:
+      - fix/dispatch-authorization
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Dispatch authorization regression
+        run: npm test -- tests/crew/state.test.ts tests/crew/overlay-dispatch.test.ts tests/crew/plan-replan.test.ts tests/crew/work-stop.test.ts tests/crew/agent-end-autonomous.test.ts
+      - name: Full test suite
+        run: npm test
