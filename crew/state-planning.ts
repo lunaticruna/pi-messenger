@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { normalizeCwd } from "./state.ts";
+import { beginAutoWorkRun, completeAutoWorkRun, revokeAutoWork, isAutonomousForCwd, stopAutonomous } from "./state-autonomous.ts";
 
 export type PlanningPhase =
   | "idle"
@@ -174,10 +175,14 @@ function persistPlanningState(cwd: string): void {
 export function startPlanningRun(cwd: string, maxPasses: number): void {
   planningCancelled = false;
   const normalizedCwd = normalizeCwd(cwd);
+  // A new plan cannot inherit permission from the previous execution.
+  if (isAutonomousForCwd(normalizedCwd)) stopAutonomous("manual");
+  revokeAutoWork(normalizedCwd);
   planningState.active = true;
   planningState.cwd = normalizedCwd;
   planningState.pid = process.pid;
   planningState.runId = randomUUID();
+  beginAutoWorkRun(normalizedCwd, planningState.runId);
   planningState.pass = 0;
   planningState.maxPasses = Math.max(1, maxPasses);
   planningState.phase = "read-prd";
@@ -198,9 +203,14 @@ export function setPlanningPhase(cwd: string, phase: PlanningPhase, pass?: numbe
   persistPlanningState(normalizedCwd);
 }
 
-export function finishPlanningRun(cwd: string, status: "completed" | "failed", pass?: number): void {
+export function finishPlanningRun(cwd: string, status: "completed" | "failed", pass?: number, autoWork = false): void {
   if (planningCancelled) return;
   const normalizedCwd = normalizeCwd(cwd);
+  // Establish the decision before publishing the completed state. Rendering
+  // and agent_end can then claim the same token, never two separate tokens.
+  if (planningState.cwd === normalizedCwd && planningState.runId && planningState.active) {
+    completeAutoWorkRun(normalizedCwd, planningState.runId, status === "completed" && autoWork);
+  }
   clearPlanningOverlayPending();
   planningState.active = false;
   planningState.cwd = normalizedCwd;
@@ -213,6 +223,7 @@ export function finishPlanningRun(cwd: string, status: "completed" | "failed", p
 
 export function clearPlanningState(cwd: string): void {
   const normalizedCwd = normalizeCwd(cwd);
+  revokeAutoWork(normalizedCwd);
   clearPlanningOverlayPending();
   planningState.active = false;
   planningState.cwd = normalizedCwd;

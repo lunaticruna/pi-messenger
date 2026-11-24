@@ -12,7 +12,7 @@ import {
   type Dirs,
 } from "./lib.ts";
 import * as crewStore from "./crew/store.ts";
-import { adjustConcurrency, autonomousState, isAutonomousForCwd, isPlanningForCwd, planningState } from "./crew/state.ts";
+import { adjustConcurrency, autonomousState, consumePendingAutoWork, hasOverlayAutoWork, revokeAutoWork, isAutonomousForCwd, isPlanningForCwd, planningState } from "./crew/state.ts";
 import { loadCrewConfig, cycleCoordinationLevel, setCoordinationOverride } from "./crew/utils/config.ts";
 import { readFeedEvents, type FeedEvent, type FeedEventType } from "./feed.ts";
 import type { Task } from "./crew/types.ts";
@@ -65,7 +65,6 @@ export class MessengerOverlay implements Component, Focusable {
   private sawIncompleteWork = false;
   private completionTimer: ReturnType<typeof setTimeout> | null = null;
   private completionDismissed = false;
-  private wasPlanning: boolean;
   private prevInProgressCount = 0;
 
   constructor(
@@ -84,8 +83,6 @@ export class MessengerOverlay implements Component, Focusable {
     for (const key of this.state.unreadCounts.keys()) {
       this.state.unreadCounts.set(key, 0);
     }
-
-    this.wasPlanning = isPlanningForCwd(this.cwd);
 
     this.progressUnsubscribe = onLiveWorkersChanged(() => {
       this.syncCrewRefreshTimers();
@@ -147,10 +144,10 @@ export class MessengerOverlay implements Component, Focusable {
   }
 
   private checkAutoSpawnOnPlanComplete(planning: boolean, tasks: Task[]): void {
-    const wasPlanningBefore = this.wasPlanning;
-    this.wasPlanning = planning;
-
-    if (!wasPlanningBefore || planning) return;
+    if (planning || !this.hasPlan() || !this.state.registered) return;
+    // The planning-complete edge is not authorization. Claim the one-shot
+    // permit shared with agent_end, including if this overlay opened late.
+    if (!consumePendingAutoWork(this.cwd, "overlay")) return;
 
     const config = loadCrewConfig(crewStore.getCrewDir(this.cwd));
     const readyTasks = crewStore.getReadyTasksFrom(tasks, { advisory: config.dependencies === "advisory" });
@@ -172,6 +169,7 @@ export class MessengerOverlay implements Component, Focusable {
       this.tui.requestRender();
     }
 
+    if (startableTasks.length === 0) revokeAutoWork(this.cwd);
     cleanupUnassignedAliveFiles(this.cwd);
   }
 
@@ -180,12 +178,18 @@ export class MessengerOverlay implements Component, Focusable {
     const prev = this.prevInProgressCount;
     this.prevInProgressCount = inProgressCount;
 
-    if (inProgressCount >= prev || inProgressCount >= autonomousState.concurrency || !hasPlan) return;
+    // Only an overlay-owned continuous execution may refill slots. A manual
+    // work call or individual task start does not authorize future waves.
+    if (!hasOverlayAutoWork(this.cwd) || this.isPlanningActiveForCurrentProject() || !hasPlan) return;
+    if (inProgressCount >= prev || inProgressCount >= autonomousState.concurrency) return;
 
     const config = loadCrewConfig(crewStore.getCrewDir(this.cwd));
     const readyTasks = crewStore.getReadyTasksFrom(tasks, { advisory: config.dependencies === "advisory" });
     const startableTasks = readyTasks.filter(t => !teamStore.taskNeedsApproval(t));
-    if (startableTasks.length === 0) return;
+    if (startableTasks.length === 0) {
+      if (inProgressCount === 0) revokeAutoWork(this.cwd);
+      return;
+    }
 
     const slots = autonomousState.concurrency - inProgressCount;
     const target = Math.min(startableTasks.length, slots);
@@ -817,6 +821,9 @@ export class MessengerOverlay implements Component, Focusable {
   }
 
   dispose(): void {
+    // Closing an executing overlay stops its automatic refill loop. Closing
+    // during planning leaves the unclaimed permit available to agent_end.
+    if (hasOverlayAutoWork(this.cwd)) revokeAutoWork(this.cwd);
     this.stopProgressRefresh();
     this.stopPlanningRefresh();
     this.cancelCompletionTimer();

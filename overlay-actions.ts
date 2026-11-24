@@ -9,7 +9,7 @@ import { executeTaskAction as runTaskAction } from "./crew/task-actions.ts";
 import type { Task } from "./crew/types.ts";
 import { getLiveWorkers } from "./crew/live-progress.ts";
 import { hasActiveWorker } from "./crew/registry.ts";
-import { cancelPlanningRun } from "./crew/state.ts";
+import { cancelPlanningRun, revokeAutoWork } from "./crew/state.ts";
 
 interface ConfirmAction {
   type: "reset" | "cascade-reset" | "delete" | "cancel-planning";
@@ -483,6 +483,8 @@ export function handleCrewKeyBinding(
     return;
   }
   if (matchesKey(data, "q") && task.status === "in_progress") {
+    // A deliberate stop must not immediately trigger automatic replacement.
+    revokeAutoWork(cwd);
     const result = executeTaskAction(cwd, "stop", task.id, agentName);
     setNotification(viewState, tui, result.success, result.message);
     tui.requestRender();

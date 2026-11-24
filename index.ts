@@ -60,6 +60,7 @@ import {
   autonomousState,
   clearPlanningState,
   consumePendingAutoWork,
+  revokeAutoWork,
   consumePlanningOverlayPending,
   dismissPlanningOverlayRun,
   getPlanningOverlayPending,
@@ -1009,6 +1010,7 @@ Usage (action-based API - preferred):
     }
 
     if (!state.registered) {
+      revokeAutoWork(ctx.cwd);
       if (autonomousState.active) {
         stopAutonomous("manual");
         pi.appendEntry("crew-state", autonomousState);
@@ -1021,8 +1023,11 @@ Usage (action-based API - preferred):
     }
 
     // --- Auto-work after plan completion ---
-    const autoWork = consumePendingAutoWork();
-    if (autoWork && !overlayTui) {
+    if (isPlanningForCwd(ctx.cwd)) return;
+    const autoWork = (!overlayTui || overlayHandle?.isHidden()) && !overlayOpening
+      ? consumePendingAutoWork(ctx.cwd)
+      : null;
+    if (autoWork) {
       const cwd = autoWork.cwd;
       const crewConfig = loadCrewConfig(crewStore.getCrewDir(cwd));
       const readyTasks = crewStore.getReadyTasks(cwd, { advisory: crewConfig.dependencies === "advisory" });
@@ -1147,6 +1152,7 @@ Usage (action-based API - preferred):
     // with a ctx that is already stale, and any ctx read would skip this cleanup.
     const cwd = state.cwd;
     if (cwd) {
+      revokeAutoWork(cwd);
       shutdownLobbyWorkers(cwd);
     }
     shutdownAllWorkers();

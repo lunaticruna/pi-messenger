@@ -21,7 +21,6 @@ import {
   isPlanningForCwd,
   resetPlanningCancellation,
   restorePlanningState,
-  setPendingAutoWork,
   setPlanningPhase,
   startPlanningRun,
   type PlanningPhase,
@@ -561,17 +560,13 @@ ${taskList}
 
 ${nextSteps}`;
 
-  finishPlanningRun(cwd, "completed", passesCompleted);
+  finishPlanningRun(cwd, "completed", passesCompleted, shouldAutoWork);
   reportProgress();
   logFeedEvent(cwd, agentName, "plan.done", prdPath, `${plannedTasks.length} tasks ready`);
   if (warningLine) {
     notify(ctx, `Plan ready with ${plannedTasks.length} tasks (${warningLine})`, "warning");
   } else {
     notify(ctx, `Plan ready with ${plannedTasks.length} tasks.`, "info");
-  }
-
-  if (shouldAutoWork) {
-    setPendingAutoWork(cwd);
   }
 
   return result(text, {

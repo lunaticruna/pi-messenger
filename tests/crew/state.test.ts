@@ -27,7 +27,10 @@ import {
   resetPlanningOverlayRuntimeForTests,
   restoreAutonomousState,
   restorePlanningState,
-  setPendingAutoWork,
+  beginAutoWorkRun,
+  completeAutoWorkRun,
+  hasOverlayAutoWork,
+  revokeAutoWork,
   setPlanningPhase,
   startAutonomous,
   startPlanningRun,
@@ -580,24 +583,68 @@ describe("crew/state", () => {
   });
 });
 
-describe("pendingAutoWork", () => {
-  beforeEach(() => {
-    consumePendingAutoWork();
+describe("planning dispatch authorization", () => {
+  it("shares a single permit between overlay and agent_end, scoped to cwd", () => {
+    const { cwd } = createTempCrewDirs();
+    const other = createTempCrewDirs().cwd;
+    startPlanningRun(cwd, 1);
+    expect(isPendingAutoWork(cwd)).toBe(false);
+    const runId = planningState.runId;
+    finishPlanningRun(cwd, "completed", 1, true);
+    expect(consumePendingAutoWork(other)).toBeNull();
+    expect(consumePendingAutoWork(cwd, "overlay")).toEqual({ cwd: fs.realpathSync.native(cwd), runId });
+    expect(consumePendingAutoWork(cwd)).toBeNull();
+    expect(consumePendingAutoWork(cwd, "overlay")).toBeNull();
+    expect(hasOverlayAutoWork(cwd)).toBe(true);
+    revokeAutoWork(cwd);
+    expect(hasOverlayAutoWork(cwd)).toBe(false);
   });
 
-  it("consumePendingAutoWork returns cwd and clears flag", () => {
-    const cwd = createTempCrewDirs().cwd;
-    expect(isPendingAutoWork()).toBe(false);
-    expect(consumePendingAutoWork()).toBeNull();
+  it("does not authorize false, failed, cancelled or stopped runs", () => {
+    const { cwd } = createTempCrewDirs();
+    startPlanningRun(cwd, 1);
+    finishPlanningRun(cwd, "completed", 1, false);
+    expect(consumePendingAutoWork(cwd)).toBeNull();
+    startPlanningRun(cwd, 1);
+    finishPlanningRun(cwd, "failed", 1, true);
+    expect(consumePendingAutoWork(cwd)).toBeNull();
+    startPlanningRun(cwd, 1);
+    cancelPlanningRun(cwd);
+    finishPlanningRun(cwd, "completed", 1, true);
+    expect(consumePendingAutoWork(cwd)).toBeNull();
+    startPlanningRun(cwd, 1);
+    revokeAutoWork(cwd);
+    finishPlanningRun(cwd, "completed", 1, true);
+    expect(consumePendingAutoWork(cwd)).toBeNull();
+  });
 
-    setPendingAutoWork(cwd);
-    expect(isPendingAutoWork()).toBe(true);
+  it("cannot resurrect stale run tokens or restore them from disk", () => {
+    const { cwd } = createTempCrewDirs();
+    beginAutoWorkRun(cwd, "old");
+    beginAutoWorkRun(cwd, "new");
+    completeAutoWorkRun(cwd, "old", true);
+    expect(consumePendingAutoWork(cwd)).toBeNull();
+    completeAutoWorkRun(cwd, "new", true);
+    expect(consumePendingAutoWork(cwd)).toEqual({ cwd: fs.realpathSync.native(cwd), runId: "new" });
+    expect(consumePendingAutoWork(cwd, "overlay")).toBeNull();
 
-    const consumed = consumePendingAutoWork();
-    expect(consumed).not.toBeNull();
-    expect(consumed!.cwd).toBe(fs.realpathSync.native(cwd));
+    startPlanningRun(cwd, 1);
+    finishPlanningRun(cwd, "completed", 1, true);
+    revokeAutoWork(cwd);
+    restorePlanningState(cwd);
+    expect(consumePendingAutoWork(cwd)).toBeNull();
+  });
 
-    expect(isPendingAutoWork()).toBe(false);
-    expect(consumePendingAutoWork()).toBeNull();
+  it("new planning revokes previous overlay and autonomous execution", () => {
+    const { cwd } = createTempCrewDirs();
+    startPlanningRun(cwd, 1);
+    finishPlanningRun(cwd, "completed", 1, true);
+    consumePendingAutoWork(cwd, "overlay");
+    startAutonomous(cwd, 2);
+    startPlanningRun(cwd, 1);
+    expect(hasOverlayAutoWork(cwd)).toBe(false);
+    expect(isAutonomousForCwd(cwd)).toBe(false);
+    finishPlanningRun(cwd, "completed", 1, false);
+    expect(consumePendingAutoWork(cwd)).toBeNull();
   });
 });
