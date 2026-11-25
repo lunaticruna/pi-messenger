@@ -74,7 +74,7 @@ describe("crew/state", () => {
     startAutonomous("/tmp/project-a", 2);
 
     expect(autonomousState.active).toBe(true);
-    expect(autonomousState.cwd).toBe("/tmp/project-a");
+    expect(autonomousState.cwd).toBe(path.resolve("/tmp/project-a"));
     expect(autonomousState.waveNumber).toBe(1);
     expect(autonomousState.waveHistory).toEqual([]);
     expect(autonomousState.startedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
@@ -122,7 +122,7 @@ describe("crew/state", () => {
     });
 
     expect(autonomousState.active).toBe(true);
-    expect(autonomousState.cwd).toBe("/tmp/project-b");
+    expect(autonomousState.cwd).toBe(path.resolve("/tmp/project-b"));
     expect(autonomousState.waveNumber).toBe(7);
     expect(autonomousState.stopReason).toBe("blocked");
     expect(autonomousState.pid).toBe(process.pid);
@@ -187,7 +187,7 @@ describe("crew/state", () => {
     restoreAutonomousState(snapshot);
 
     expect(autonomousState.active).toBe(false);
-    expect(autonomousState.cwd).toBe("/tmp/project-c");
+    expect(autonomousState.cwd).toBe(path.resolve("/tmp/project-c"));
     expect(autonomousState.waveNumber).toBe(3);
     expect(autonomousState.waveHistory).toHaveLength(2);
     expect(autonomousState.stopReason).toBe("completed");
