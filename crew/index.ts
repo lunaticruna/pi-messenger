@@ -10,7 +10,7 @@ import type { MessengerState, Dirs, AgentMailMessage, NameThemeConfig } from "..
 import * as handlers from "../handlers.ts";
 import type { CrewParams, AppendEntryFn } from "./types.ts";
 import { result } from "./utils/result.ts";
-import { isPlanningForCwd, cancelPlanningRun, autonomousState, isAutonomousForCwd, stopAutonomous } from "./state.ts";
+import { isPlanningForCwd, cancelPlanningRun, autonomousState, isAutonomousForCwd, stopAutonomous, revokeAutoWork } from "./state.ts";
 import { logFeedEvent } from "../feed.ts";
 
 type DeliverFn = (msg: AgentMailMessage) => void;
@@ -200,7 +200,9 @@ export async function executeCrewAction(
     case 'work': {
       if (op === 'stop') {
         const cwd = ctx.cwd;
+        const revoked = revokeAutoWork(cwd);
         if (!isAutonomousForCwd(cwd)) {
+          if (revoked) return result("Automatic dispatch stopped. Existing workers are not terminated by work.stop.", { mode: "work.stop", autonomous: false });
           return result("No autonomous work running for this project.", { mode: "work.stop" });
         }
         stopAutonomous("manual");

@@ -17,7 +17,7 @@ import * as teamStore from "../team/store.ts";
 import { reviewImplementation } from "./review.ts";
 import * as store from "../store.ts";
 import { getCrewDir } from "../store.ts";
-import { autonomousState, isAutonomousForCwd, startAutonomous, stopAutonomous, addWaveResult, clampConcurrency } from "../state.ts";
+import { autonomousState, isAutonomousForCwd, startAutonomous, stopAutonomous, addWaveResult, clampConcurrency, revokeAutoWork, isPlanningForCwd } from "../state.ts";
 import { getAvailableLobbyWorkers, assignTaskToLobbyWorker, cleanupUnassignedAliveFiles } from "../lobby.ts";
 import { logFeedEvent } from "../../feed.ts";
 import { approvalTaskSummaries } from "../utils/task-format.ts";
@@ -50,6 +50,17 @@ export async function execute(
       mode: "work",
       error: "no_plan"
     });
+  }
+
+  if (isPlanningForCwd(cwd)) {
+    return result("Planning is still in progress.", { mode: "work", error: "planning_active" });
+  }
+
+  // An explicit work call takes ownership from the overlay/plan auto-start.
+  revokeAutoWork(cwd);
+  if (!autonomous && isAutonomousForCwd(cwd)) {
+    stopAutonomous("manual");
+    appendEntry("crew-state", autonomousState);
   }
 
   // Check for worker agent

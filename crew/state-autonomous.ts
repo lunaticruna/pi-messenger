@@ -94,6 +94,7 @@ export function startAutonomous(cwd: string, concurrency: number): void {
 }
 
 export function stopAutonomous(reason: "completed" | "blocked" | "manual"): void {
+  if (autonomousState.cwd) revokeAutoWork(autonomousState.cwd);
   autonomousState.active = false;
   autonomousState.autoOverlayPending = false;
   autonomousState.stoppedAt = new Date().toISOString();
@@ -143,22 +144,49 @@ export function isAutonomousForCwd(cwd: string): boolean {
   return normalizeCwd(autonomousState.cwd) === normalizeCwd(cwd);
 }
 
-let pendingAutoWork = false;
-let pendingAutoWorkCwd: string | null = null;
-
-export function isPendingAutoWork(): boolean {
-  return pendingAutoWork;
+// Authorization is intentionally process-local: restoring a plan from disk
+// must never restore permission to launch new processes. Each planning run has
+// one first-dispatch token, claimed either by the overlay or agent_end.
+type AutoWorkOwner = "planning" | "pending" | "overlay";
+interface AutoWorkPermit {
+  cwd: string;
+  runId: string;
+  owner: AutoWorkOwner;
 }
 
-export function setPendingAutoWork(cwd: string): void {
-  pendingAutoWork = true;
-  pendingAutoWorkCwd = normalizeCwd(cwd);
+const autoWorkPermits = new Map<string, AutoWorkPermit>();
+
+export function beginAutoWorkRun(cwd: string, runId: string): void {
+  const key = normalizeCwd(cwd);
+  autoWorkPermits.set(key, { cwd: key, runId, owner: "planning" });
 }
 
-export function consumePendingAutoWork(): { cwd: string } | null {
-  if (!pendingAutoWork || !pendingAutoWorkCwd) return null;
-  const consumed = { cwd: pendingAutoWorkCwd };
-  pendingAutoWork = false;
-  pendingAutoWorkCwd = null;
-  return consumed;
+export function completeAutoWorkRun(cwd: string, runId: string, allowed: boolean): void {
+  const key = normalizeCwd(cwd);
+  const permit = autoWorkPermits.get(key);
+  // Do not resurrect a stopped/cancelled run or overwrite a newer run.
+  if (!permit || permit.runId !== runId || permit.owner !== "planning") return;
+  if (allowed) permit.owner = "pending";
+  else autoWorkPermits.delete(key);
+}
+
+export function isPendingAutoWork(cwd: string): boolean {
+  return autoWorkPermits.get(normalizeCwd(cwd))?.owner === "pending";
+}
+
+export function consumePendingAutoWork(cwd: string, owner: "agent" | "overlay" = "agent"): { cwd: string; runId: string } | null {
+  const key = normalizeCwd(cwd);
+  const permit = autoWorkPermits.get(key);
+  if (permit?.owner !== "pending") return null;
+  if (owner === "overlay") permit.owner = "overlay";
+  else autoWorkPermits.delete(key);
+  return { cwd: permit.cwd, runId: permit.runId };
+}
+
+export function hasOverlayAutoWork(cwd: string): boolean {
+  return autoWorkPermits.get(normalizeCwd(cwd))?.owner === "overlay";
+}
+
+export function revokeAutoWork(cwd: string): boolean {
+  return autoWorkPermits.delete(normalizeCwd(cwd));
 }

@@ -19,9 +19,9 @@ import {
   finishPlanningRun,
   isPlanningCancelled,
   isPlanningForCwd,
+  planningState,
   resetPlanningCancellation,
   restorePlanningState,
-  setPendingAutoWork,
   setPlanningPhase,
   startPlanningRun,
   type PlanningPhase,
@@ -322,7 +322,7 @@ export async function execute(
   store.createPlan(cwd, prdPath, isPromptBased ? prompt : undefined);
   startRunInProgress(cwd, runLabel);
   if (prompt && !isPromptBased) injectSteeringPrompt(cwd, prompt);
-  startPlanningRun(cwd, maxPasses);
+  const planningRunId = startPlanningRun(cwd, maxPasses);
   setPlanningPhase(cwd, "read-prd", 0);
   logFeedEvent(cwd, agentName, "plan.start", prdPath, `max passes ${maxPasses}`);
   notify(ctx, `Planning started: ${isPromptBased ? runLabel : path.basename(prdPath)} (${maxPasses} pass${maxPasses === 1 ? "" : "es"})`, "info");
@@ -351,7 +351,7 @@ export async function execute(
       taskId: "__planner__",
     }], cwd);
 
-    if (isPlanningCancelled()) {
+    if (isPlanningCancelled() || planningState.runId !== planningRunId) {
       return result("Planning cancelled.", { mode: "plan", error: "cancelled" });
     }
 
@@ -404,7 +404,7 @@ export async function execute(
       taskId: "__reviewer__",
     }], cwd);
 
-    if (isPlanningCancelled()) {
+    if (isPlanningCancelled() || planningState.runId !== planningRunId) {
       return result("Planning cancelled.", { mode: "plan", error: "cancelled" });
     }
 
@@ -561,17 +561,13 @@ ${taskList}
 
 ${nextSteps}`;
 
-  finishPlanningRun(cwd, "completed", passesCompleted);
+  finishPlanningRun(cwd, "completed", passesCompleted, shouldAutoWork);
   reportProgress();
   logFeedEvent(cwd, agentName, "plan.done", prdPath, `${plannedTasks.length} tasks ready`);
   if (warningLine) {
     notify(ctx, `Plan ready with ${plannedTasks.length} tasks (${warningLine})`, "warning");
   } else {
     notify(ctx, `Plan ready with ${plannedTasks.length} tasks.`, "info");
-  }
-
-  if (shouldAutoWork) {
-    setPendingAutoWork(cwd);
   }
 
   return result(text, {

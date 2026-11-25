@@ -399,7 +399,7 @@ describe("plan with autoWork", () => {
 
   afterEach(() => {
     if (state.planningState.cwd) state.clearPlanningState(state.planningState.cwd);
-    state.consumePendingAutoWork();
+    state.consumePendingAutoWork(tmpDir);
   });
 
   it("sets pendingAutoWork when autoWork is true", async () => {
@@ -410,16 +410,21 @@ describe("plan with autoWork", () => {
       progress: { toolCallCount: 0, tokens: 0 },
     }]);
 
-    expect(state.isPendingAutoWork()).toBe(false);
+    expect(state.isPendingAutoWork(tmpDir)).toBe(false);
 
     const r = await planHandler.execute(
       { action: "plan", autoWork: true },
       mockCtx,
       "agent",
+      () => {
+        if (state.planningState.phase === "completed") {
+          expect(state.isPendingAutoWork(tmpDir)).toBe(true);
+        }
+      },
     );
 
     expect(r.details?.error).toBeUndefined();
-    expect(state.isPendingAutoWork()).toBe(true);
+    expect(state.isPendingAutoWork(tmpDir)).toBe(true);
     expect(r.content[0].text).toContain("Workers will start automatically");
     expect(r.content[0].text).not.toContain("Next steps");
   });
@@ -439,7 +444,7 @@ describe("plan with autoWork", () => {
     );
 
     expect(r.details?.error).toBeUndefined();
-    expect(state.isPendingAutoWork()).toBe(true);
+    expect(state.isPendingAutoWork(tmpDir)).toBe(true);
     expect(r.content[0].text).toContain("Workers will start automatically");
   });
 
@@ -458,7 +463,7 @@ describe("plan with autoWork", () => {
     );
 
     expect(r.details?.error).toBeUndefined();
-    expect(state.isPendingAutoWork()).toBe(false);
+    expect(state.isPendingAutoWork(tmpDir)).toBe(false);
     expect(r.content[0].text).toContain("Next steps");
     expect(r.content[0].text).not.toContain("Workers will start automatically");
   });
